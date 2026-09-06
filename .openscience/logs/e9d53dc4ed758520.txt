@@ -1,7 +1,0 @@
-node not found
-nodejs not found
-deno not found
-bun not found
-qjs not found
-py ok
-done

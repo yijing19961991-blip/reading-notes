@@ -1,2 +1,0 @@
-pandoc not found
-Python 3.9.6
