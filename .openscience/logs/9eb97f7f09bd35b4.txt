@@ -1,0 +1,6 @@
+mm-node count: 24
+svg links: 22
+has tabs: True
+has audio placeholder: False
+viewport size: 380x1424
+title text present: True
