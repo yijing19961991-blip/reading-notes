@@ -1,12 +1,27 @@
-/* 思维导图渲染器：右键展开的树形结构，可缩放、可点击折叠节点 */
+/* 思维导图渲染器：左右对称紧凑布局，节点点击折叠/展开，可缩放、自动适配一屏 */
 (function (global) {
   'use strict';
 
   var SVG_NS = 'http://www.w3.org/2000/svg';
-  var FONT_ROOT = 15;
-  var FONT_CHILD = 13;
-  var CHAR_W_ROOT = 15;
-  var CHAR_W_CHILD = 13.4;
+
+  var FONT_ROOT = 14;
+  var FONT_CHILD = 12.5;
+  var CW_ROOT = 13.5;
+  var CW_CHILD = 12;
+
+  var DEF = {
+    colGap: 150,      // 相邻列水平间距（同时决定节点列宽上限）
+    vGap: 9,          // 兄弟叶子垂直间隔
+    sideGap: 30,      // 同侧分支之间垂直间隔
+    padX: 10,
+    padY: 6,
+    lineH: 17,
+    rootW: 215
+  };
+
+  function esc(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
 
   function wrapLines(text, maxW, cw) {
     text = String(text || '');
@@ -26,14 +41,9 @@
   function MindMap(container, rootData, opts) {
     opts = opts || {};
     this.container = container;
-    this.levelGap = opts.levelGap || 46;
-    this.vGap = opts.vGap || 14;
-    this.padX = opts.padX || 16;
-    this.padY = opts.padY || 10;
-    this.lineH = opts.lineH || 20;
-    this.widthByDepth = [240, 212, 192, 168, 150];
+    this.cfg = {};
+    for (var k in DEF) this.cfg[k] = opts[k] !== undefined ? opts[k] : DEF[k];
     this.scale = 1;
-    this.rootData = rootData;
     this.root = this.build(rootData, 0);
     this.layout();
     this.render();
@@ -45,70 +55,131 @@
       depth: depth,
       children: [],
       collapsed: false,
-      collapsedCount: data.c ? data.c.length : 0
+      collapsedCount: data.c ? data.c.length : 0,
+      side: (data._side === 'left' || data._side === 'right') ? data._side : 'right'
     };
-    var w = this.widthByDepth[Math.min(depth, this.widthByDepth.length - 1)];
-    var innerW = w - this.padX * 2 - 4;
-    var cw = depth === 0 ? CHAR_W_ROOT : CHAR_W_CHILD;
-    var lines = wrapLines(data.t, innerW, cw);
-    n.lines = lines;
+    var cfg = this.cfg;
+    var w;
+    if (depth === 0) w = cfg.rootW;
+    else w = Math.min(cfg.colGap - 10, depth <= 2 ? 158 : 148);
+    var cw = depth === 0 ? CW_ROOT : CW_CHILD;
+    n.font = depth === 0 ? FONT_ROOT : FONT_CHILD;
     n.w = w;
-    n.h = Math.max(lines.length * this.lineH + this.padY * 2, 34);
+    n.lines = wrapLines(data.t, w - cfg.padX * 2 - 4, cw);
+    n.h = Math.max(n.lines.length * cfg.lineH + cfg.padY * 2, 27);
     if (data.c) {
-      for (var i = 0; i < data.c.length; i++) n.children.push(this.build(data.c[i], depth + 1));
+      for (var i = 0; i < data.c.length; i++) {
+        n.children.push(this.build(data.c[i], depth + 1));
+      }
     }
     return n;
   };
 
-  MindMap.prototype.maxDepthScan = function (node) {
-    var max = node.depth;
-    for (var i = 0; i < node.children.length; i++) {
-      var d = this.maxDepthScan(node.children[i]);
-      if (d > max) max = d;
-    }
-    return max;
+  MindMap.prototype.partition = function (node) {
+    // depth-1 分支左右交替分派：偶数→右，奇数→左
+    var right = [], left = [];
+    var root = node;
+    node.children.forEach(function (c, i) {
+      c.side = (i % 2 === 0) ? 'right' : 'left';
+      if (c.side === 'right') right.push(c);
+      else left.push(c);
+    });
+    (function assign(cs) {
+      cs.forEach(function (c) {
+        c.children.forEach(function (g) { g.side = c.side; assign(g.children); });
+      });
+    })(right);
+    (function assign(cs) {
+      cs.forEach(function (c) {
+        c.children.forEach(function (g) { g.side = c.side; assign(g.children); });
+      });
+    })(left);
+    return { right: right, left: left };
   };
 
   MindMap.prototype.layout = function () {
     var self = this;
-    var cursor = 0;
+    var cfg = this.cfg;
+    var root = this.root;
 
-    function walk(node) {
-      if (!node.children.length || node.collapsed) {
-        var top = cursor;
-        cursor += node.h + self.vGap;
-        node.y = top + node.h / 2;
-        return { top: top, bottom: top + node.h };
+    // y 布局：叶子堆叠，父节点取首尾子中点
+    function walk(n) {
+      if (!n.children.length || n.collapsed) {
+        n._top = self._cursor;
+        n._bottom = self._cursor + n.h;
+        n.relY = n._top + n.h / 2;
+        self._cursor += n.h + cfg.vGap;
+        return;
       }
-      var ranges = [];
-      for (var i = 0; i < node.children.length; i++) ranges.push(walk(node.children[i]));
-      var min = Infinity, max = -Infinity;
-      for (var j = 0; j < ranges.length; j++) {
-        if (ranges[j].top < min) min = ranges[j].top;
-        if (ranges[j].bottom > max) max = ranges[j].bottom;
-      }
-      node.y = (min + max) / 2;
-      return { top: min, bottom: max };
+      for (var i = 0; i < n.children.length; i++) walk(n.children[i]);
+      n._top = n.children[0]._top;
+      n._bottom = n.children[n.children.length - 1]._bottom;
+      n.relY = (n._top + n._bottom) / 2;
     }
 
-    var r = walk(this.root);
-    this.maxDepth = this.maxDepthScan(this.root);
-    this.maxW = 0;
+    function layoutSide(branches) {
+      var sideH = 0;
+      self._cursor = 0;
+      if (branches.length) {
+        for (var i = 0; i < branches.length; i++) {
+          self._cursor = i ? branches[i - 1]._bottom + cfg.sideGap : 0;
+          walk(branches[i]);
+        }
+        sideH = branches[branches.length - 1]._bottom;
+      }
+      return sideH;
+    }
+
+    var sides = this.partition(root);
+    var rightH = layoutSide(sides.right);
+    var leftH = layoutSide(sides.left);
+    var canvasH = Math.max(rightH, leftH, root.h) ;
+    canvasH += 40; // 上下留白
+    root.relY = canvasH / 2;
+
+    function shiftSide(branches, sideH) {
+      var off = (canvasH - sideH) / 2;
+      branches.forEach(function (b) {
+        (function sh(n) {
+          n.y = n.relY + off;
+          for (var i = 0; i < n.children.length; i++) sh(n.children[i]);
+        })(b);
+      });
+    }
+    shiftSide(sides.right, rightH);
+    shiftSide(sides.left, leftH);
+
+    // x 布局
+    var rootLeft = 60;
+    root.x = rootLeft;
+    root.y = root.relY;
+    (function assignX(children) {
+      children.forEach(function (c) {
+        if (c.side === 'right') {
+          c.x = rootLeft + root.w + c.depth * cfg.colGap;
+        } else {
+          c.x = rootLeft - c.depth * cfg.colGap - c.w;
+        }
+        assignX(c.children);
+      });
+    })(root.children);
+
+    // 归一化左边距并求画布尺寸
+    var minX = Infinity, maxX = -Infinity;
     (function scan(n) {
-      if (n.w > self.maxW) self.maxW = n.w;
+      if (n.x < minX) minX = n.x;
+      if (n.x + n.w > maxX) maxX = n.x + n.w;
       for (var i = 0; i < n.children.length; i++) scan(n.children[i]);
-    })(this.root);
+    })(root);
+    var shift = 24 - minX;
+    (function scan2(n) {
+      n.x += shift;
+      for (var i = 0; i < n.children.length; i++) scan2(n.children[i]);
+    })(root);
 
-    var leftPad = 24, rightPad = 24, topPad = 30, bottomPad = 30;
-    this.contentW = leftPad + this.maxDepth * this.levelGap + this.maxW + rightPad;
-    this.contentH = Math.max(r.bottom, this.root.h) + topPad + bottomPad;
-
-    (function assignX(n) {
-      n.x = leftPad + n.depth * self.levelGap;
-      n.y = n.y + topPad;
-      for (var i = 0; i < n.children.length; i++) assignX(n.children[i]);
-    })(this.root);
-    this.topPad = topPad;
+    this.contentH = canvasH;
+    this.contentW = maxX + shift + 24;
+    this.canvasH = canvasH;
   };
 
   MindMap.prototype.render = function () {
@@ -154,7 +225,7 @@
     el.style.height = node.h + 'px';
     var html = '';
     for (var i = 0; i < node.lines.length; i++) {
-      html += (i ? '<span class="mm-line">' + esc(node.lines[i]) + '</span>' : esc(node.lines[i]));
+      html += (i ? '<span class="mm-line">' : '') + esc(node.lines[i]) + (i ? '</span>' : '');
     }
     el.innerHTML = html;
     el.title = node.t;
@@ -163,7 +234,7 @@
       var badge = document.createElement('span');
       badge.className = 'mm-toggle';
       if (node.collapsed) {
-        badge.textContent = '+' + node.children.length;
+        badge.textContent = '+' + node.collapsedCount;
         el.classList.add('mm-collapsed');
       } else {
         badge.textContent = '\u2212';
@@ -172,12 +243,6 @@
       el.addEventListener('click', function (e) {
         e.stopPropagation();
         self.toggle(node);
-      });
-    } else {
-      el.addEventListener('click', function (e) {
-        var c = el.classList;
-        c.toggle('mm-flash');
-        setTimeout(function () { c.remove('mm-flash'); }, 700);
       });
     }
 
@@ -188,15 +253,20 @@
 
   MindMap.prototype.drawLinks = function (node) {
     if (!node.children.length || node.collapsed) return;
-    var x1 = node.x + node.w, y1 = node.y;
+    var self = this;
     for (var i = 0; i < node.children.length; i++) {
       var child = node.children[i];
-      var x2 = child.x, y2 = child.y;
+      var rightSide = child.side === 'right';
+      var x1 = rightSide ? node.x + node.w : node.x;
+      var y1 = node.y;
+      var x2 = rightSide ? child.x : child.x + child.w;
+      var y2 = child.y;
+      if (x1 > x2) { var t = x1; x1 = x2; x2 = t; }
       var mx = (x1 + x2) / 2;
       var d = 'M' + x1.toFixed(1) + ',' + y1.toFixed(1) + ' C' + mx.toFixed(1) + ',' + y1.toFixed(1) + ' ' + mx.toFixed(1) + ',' + y2.toFixed(1) + ' ' + x2.toFixed(1) + ',' + y2.toFixed(1);
       var path = document.createElementNS(SVG_NS, 'path');
       path.setAttribute('d', d);
-      path.setAttribute('class', 'mm-link' + (child.collapsed ? ' mm-link-dim' : ''));
+      path.setAttribute('class', 'mm-link');
       this.svg.appendChild(path);
       this.drawLinks(child);
     }
@@ -209,7 +279,7 @@
   };
 
   MindMap.prototype.setScale = function (s) {
-    this.scale = Math.max(0.25, Math.min(2.5, s));
+    this.scale = Math.max(0.2, Math.min(1.7, s));
     this.canvas.style.width = (this.contentW * this.scale) + 'px';
     this.canvas.style.height = (this.contentH * this.scale) + 'px';
     this.canvas.style.transform = 'scale(' + this.scale + ')';
@@ -221,21 +291,15 @@
   };
 
   MindMap.prototype.fit = function () {
-    var availW = this.container.clientWidth;
-    if (!availW) availW = this.container.parentElement.clientWidth || 600;
-    var s = Math.max(0.3, Math.min(1.4, (availW - 24) / this.contentW));
+    var aw = this.container.clientWidth || this.container.parentElement.clientWidth || 600;
+    var vh = (global.innerHeight || 700) - 220;
+    var ah = Math.max(280, Math.min(vh, 900));
+    var s = Math.min((aw - 20) / this.contentW, (ah - 24) / this.contentH);
+    s = Math.max(0.45, Math.min(1.4, s));
     this.setScale(s);
-  };
-
-  MindMap.prototype.reset = function () {
-    this.fit();
     var vp = this.container;
     if (vp.scrollTo) vp.scrollTo(0, 0);
   };
-
-  function esc(s) {
-    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  }
 
   global.MindMap = MindMap;
 })(window);
