@@ -266,35 +266,12 @@ a { color: var(--brand); text-decoration: none; }
 
 .chapter-row:hover .chapter-arrow { color: var(--accent); }
 
-/* ---------- 书籍页三区：简介 / 章节要点 / 音频口播 ---------- */
+/* ---------- 书籍页页签：简介 / 章节要点 / 音频口播 ---------- */
 .book-tabs { flex-wrap: wrap; }
 .book-tab-content { margin-top: 16px; }
-.book-section, .book-map { margin-top: 22px; }
-.book-map { padding-top: 8px; }
-.panel-title.sub { margin-top: 18px; font-size: 16px; }
+.audio-note { color: var(--muted); font-size: 13px; margin-bottom: 14px; }
 
-.chap-item {
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  margin-bottom: 14px;
-  background: var(--surface);
-  box-shadow: var(--shadow);
-  overflow: hidden;
-}
-.chap-item.open { border-color: var(--brand); }
-.chap-head {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  padding: 14px 16px;
-  cursor: pointer;
-  transition: background 0.15s;
-}
-.chap-head:hover { background: #fbfaf6; }
-.chap-item.open .chap-head { border-bottom: 1px solid var(--line); }
-.chap-body { padding: 16px 18px; }
-.chap-tabs { margin-bottom: 12px; }
-.chap-content .mindmap { max-height: 62vh; }
+.chapter-row { background: var(--surface); box-shadow: var(--shadow); text-decoration: none; }
 
 .audio-item .audio-title { margin-bottom: 8px; }
 .audio-mini {
