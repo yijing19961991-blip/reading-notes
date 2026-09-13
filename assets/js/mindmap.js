@@ -206,7 +206,11 @@
   MindMap.prototype.renderNode = function (node, parentLayer) {
     var self = this;
     var el = document.createElement('div');
-    el.className = 'mm-node' + (node.depth === 0 ? ' mm-node-root' : '') + (node.children.length ? ' mm-node-toggle' : '');
+    var cls = 'mm-node';
+    if (node.depth === 0) cls += ' mm-node-root';
+    else cls += (node.depth === 1 ? ' mm-node-d1' : ' mm-node-d2');
+    if (node.children.length) cls += ' mm-node-toggle';
+    el.className = cls;
     el.style.left = node.x + 'px';
     el.style.top = (node.y - node.h / 2) + 'px';
     el.style.width = node.w + 'px';

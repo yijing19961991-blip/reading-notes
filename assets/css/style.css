@@ -420,6 +420,20 @@ a { color: var(--brand); text-decoration: none; }
 
 .mm-node-root .mm-toggle { background: #fff; color: var(--brand-deep); }
 
+/* 分层配色：根=深蓝渐变，分支=琥珀，叶子=青绿 */
+.mm-node-d1 {
+  border-color: #c98a35;
+  background: #faf1e0;
+  color: #8a5a1a;
+}
+.mm-node-d1 .mm-toggle { background: #c98a35; color: #fff; }
+.mm-node-d2 {
+  border-color: #2ca58f;
+  background: #e8f7f2;
+  color: #166c5d;
+}
+.mm-node-d2 .mm-toggle { background: #2ca58f; color: #fff; }
+
 /* ---------- 文字提炼 ---------- */
 .note-block {
   background: var(--surface);
