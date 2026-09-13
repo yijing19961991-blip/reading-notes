@@ -93,7 +93,7 @@ a { color: var(--brand); text-decoration: none; }
 
 .book-cover-inner { position: relative; z-index: 1; }
 
-.book-cover.has-img { padding: 0; }
+.book-cover.has-img { padding: 0; height: auto; }
 .book-cover.has-img::after { display: none; }
 .cover-img {
   width: 100%;
@@ -376,6 +376,71 @@ a { color: var(--brand); text-decoration: none; }
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
+
+/* 随手记 */
+.memo-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+.memo-h { font-size: 15px; color: var(--ink); }
+.memo-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 14px;
+  font-family: inherit;
+  background: var(--surface);
+  color: var(--ink);
+}
+.memo-input:focus { outline: none; border-color: var(--brand); }
+.memo-text { min-height: 110px; resize: vertical; line-height: 1.6; }
+.memo-hint { color: var(--muted); font-size: 12px; margin: 0; }
+.memo-btn {
+  align-self: flex-start;
+  padding: 9px 22px;
+  border: none;
+  border-radius: 8px;
+  background: var(--brand);
+  color: #fff;
+  font-size: 14px;
+  cursor: pointer;
+}
+.memo-btn:hover { background: var(--brand-deep); }
+.memo-item {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 14px;
+  margin-bottom: 10px;
+  background: var(--surface);
+}
+.memo-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+.memo-name { font-size: 12px; color: var(--muted); font-weight: 600; }
+.memo-del {
+  flex: none;
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 12px;
+}
+.memo-del:hover { color: #c0392b; }
+.memo-text-view {
+  margin-top: 6px;
+  font-size: 14px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.memo-empty { color: var(--muted); font-size: 13px; }
 
 /* ---------- 章节页 ---------- */
 .ch-head { padding: 6px 0 16px; }

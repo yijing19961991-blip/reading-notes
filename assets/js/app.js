@@ -32,6 +32,12 @@
     return m + ':' + (s < 10 ? '0' + s : s);
   }
 
+  function fmtDate(ts) {
+    var d = new Date(ts);
+    function p(n) { return n < 10 ? '0' + n : n; }
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+  }
+
   function getBook(id) {
     for (var i = 0; i < DATA.books.length; i++) if (DATA.books[i].id === id) return DATA.books[i];
     return null;
@@ -78,10 +84,25 @@
     var cv = el('div', 'book-cover' + (extraCls || ''));
     if (book.cover && book.cover.img) {
       cv.classList.add('has-img');
+      cv.style.aspectRatio = '2 / 3';
       var img = new Image();
       img.className = 'cover-img';
-      img.src = book.cover.img;
       img.alt = book.title;
+      img.addEventListener('load', function () {
+        cv.style.aspectRatio = img.naturalWidth / img.naturalHeight;
+      });
+      img.addEventListener('error', function () {
+        cv.classList.remove('has-img');
+        img.remove();
+        cv.style.aspectRatio = '';
+        cv.style.background = 'linear-gradient(150deg, ' + book.cover.from + ' 0%, ' + book.cover.to + ' 78%)';
+        cv.style.borderColor = book.cover.accent;
+        var inn = el('div', 'book-cover-inner');
+        inn.appendChild(el('div', 'book-cover-title', esc(book.title)));
+        inn.appendChild(el('div', 'book-cover-author', esc(book.author)));
+        cv.appendChild(inn);
+      });
+      img.src = book.cover.img;
       cv.appendChild(img);
     } else {
       cv.style.background = 'linear-gradient(150deg, ' + book.cover.from + ' 0%, ' + book.cover.to + ' 78%)';
@@ -276,7 +297,7 @@
     if (ch.audio && ch.audio.src) app.appendChild(buildChapterPlayer(ch));
 
     var tabs = el('div', 'tabs book-tabs');
-    var defs = [['mindmap', '思维导图'], ['notes', '文字提炼']];
+    var defs = [['mindmap', '思维导图'], ['notes', '文字提炼'], ['memo', '随手记']];
     var contentBox = el('div', 'book-tab-content');
     defs.forEach(function (kv) {
       var b = el('button', 'tab', kv[1]);
@@ -298,6 +319,7 @@
   function renderChapterTab(book, ch, content) {
     content.innerHTML = '';
     if (state.chapTab === 'notes') renderNotes(ch, content);
+    else if (state.chapTab === 'memo') renderMemo(book, ch, content);
     else {
       var tools = el('div', 'mm-tools');
       var mb = {};
@@ -390,6 +412,77 @@
       sec.appendChild(ul);
       content.appendChild(sec);
     });
+  }
+
+  /* ---- 随手记：访客写下想法（名字+内容），存本机浏览器 ---- */
+  function renderMemo(book, ch, content) {
+    var key = 'reading-notes.memo.' + book.id + '.' + ch.id;
+    var list = [];
+    try { list = JSON.parse(localStorage.getItem(key) || '[]'); } catch (e) { list = []; }
+    if (!Array.isArray(list)) list = [];
+
+    var form = el('div', 'memo-form');
+    form.appendChild(el('h4', 'memo-h', '写点什么：你的想法 + 你的名字'));
+    var inpName = document.createElement('input');
+    inpName.type = 'text';
+    inpName.className = 'memo-input';
+    inpName.placeholder = '你的名字（可选，默认匿名）';
+    inpName.maxLength = 30;
+    var inpText = document.createElement('textarea');
+    inpText.className = 'memo-input memo-text';
+    inpText.placeholder = '你的想法…（500 字以内）';
+    inpText.maxLength = 500;
+    var note = el('p', 'memo-hint', '随手记保存在本机浏览器中（无需账号即可使用）。');
+    var btn = el('button', 'memo-btn', '提交');
+    form.appendChild(inpName);
+    form.appendChild(inpText);
+    form.appendChild(note);
+    form.appendChild(btn);
+
+    var listBox = el('div', 'memo-list');
+
+    function persist() {
+      try { localStorage.setItem(key, JSON.stringify(list)); } catch (e) {}
+    }
+
+    function renderList() {
+      listBox.innerHTML = '';
+      if (!list.length) {
+        listBox.appendChild(el('p', 'memo-empty', '还没有随手记，写下第一条吧。'));
+        return;
+      }
+      var arr = list.slice().reverse();
+      arr.forEach(function (m, i) {
+        if (!m || typeof m.text !== 'string') return;
+        var it = el('div', 'memo-item');
+        var head = el('div', 'memo-head');
+        head.appendChild(el('span', 'memo-name', esc(m.name || '匿名') + ' · ' + fmtDate(m.time || Date.now())));
+        var del = el('button', 'memo-del', '删除');
+        del.addEventListener('click', function () {
+          var idx = list.length - 1 - i;
+          if (idx >= 0 && idx < list.length) { list.splice(idx, 1); persist(); renderList(); }
+        });
+        head.appendChild(del);
+        it.appendChild(head);
+        it.appendChild(el('p', 'memo-text-view', esc(m.text)));
+        listBox.appendChild(it);
+      });
+      if (!listBox.children.length) listBox.appendChild(el('p', 'memo-empty', '还没有随手记，写下第一条吧。'));
+    }
+
+    btn.addEventListener('click', function () {
+      var text = inpText.value.trim();
+      if (!text) { inpText.focus(); return; }
+      list.push({ name: inpName.value.trim() || '匿名', text: text, time: Date.now() });
+      persist();
+      inpText.value = '';
+      inpName.value = '';
+      renderList();
+    });
+
+    content.appendChild(form);
+    content.appendChild(listBox);
+    renderList();
   }
 
   function mmButton(label, fn) {
