@@ -3,6 +3,11 @@
   'use strict';
 
   var DATA = window.READING_DATA;
+
+  // Twikoo 云函数地址（Vercel/Netlify/HuggingFace 部署后形如 https://xxx.vercel.app）。
+  // 填了 → "随手记"为全网共享版（游客可写、带管理后台）；null → 退回本机 localStorage 版。
+  var TWIKOO_ENV = null;
+  var TWIKOO_VENDOR = 'assets/vendor/twikoo.all.min.js?v=9';
   var $ = function (sel) { return document.querySelector(sel); };
   var el = function (tag, cls, html) {
     var e = document.createElement(tag);
@@ -414,8 +419,36 @@
     });
   }
 
-  /* ---- 随手记：访客写下想法（名字+内容），存本机浏览器 ---- */
+  /* ---- 随手记：配好 Twikoo 后端全网共享，否则用本机浏览器存储 ---- */
   function renderMemo(book, ch, content) {
+    if (TWIKOO_ENV) renderMemoTwikoo(book, ch, content);
+    else renderMemoLocal(book, ch, content);
+  }
+
+  function renderMemoTwikoo(book, ch, content) {
+    var hint = el('p', 'memo-hint', '随手记（全网共享版）：写下你的名字和想法，会同步给所有访客。');
+    var box = el('div', 'twikoo-box');
+    box.id = 'tw-' + book.id + '-' + ch.id;
+    content.appendChild(hint);
+    content.appendChild(box);
+    var path = '/book/' + book.id + '/' + ch.id;
+    function init() {
+      if (window.twikoo) window.twikoo.init({ envId: TWIKOO_ENV, el: '#' + box.id, lang: 'zh-CN', path: path });
+    }
+    if (window.twikoo) init();
+    else {
+      var s = document.createElement('script');
+      s.src = TWIKOO_VENDOR;
+      s.onload = init;
+      s.onerror = function () {
+        box.innerHTML = '<p class="memo-empty">Twikoo 组件加载失败，请稍后重试。</p>';
+      };
+      document.body.appendChild(s);
+    }
+  }
+
+  /* ---- 随手记（本机版）：访客写下想法（名字+内容），存本机浏览器 ---- */
+  function renderMemoLocal(book, ch, content) {
     var key = 'reading-notes.memo.' + book.id + '.' + ch.id;
     var list = [];
     try { list = JSON.parse(localStorage.getItem(key) || '[]'); } catch (e) { list = []; }
