@@ -1,4 +1,6 @@
-/* 思维导图渲染器：左右对称紧凑布局，节点点击折叠/展开，可缩放、自动适配一屏 */
+/* 思维导图渲染器：竖向逻辑图布局（适合手机竖屏）
+ * 根节点在顶部，分支节点自上而下排成一列，每个分支下的子节点横向排列（可换行）。
+ * 节点点击折叠/展开，可缩放、自动适配一屏 */
 (function (global) {
   'use strict';
 
@@ -10,13 +12,18 @@
   var CW_CHILD = 12;
 
   var DEF = {
-    colGap: 150,      // 相邻列水平间距（同时决定节点列宽上限）
-    vGap: 9,          // 兄弟叶子垂直间隔
-    sideGap: 30,      // 同侧分支之间垂直间隔
+    cw: 316,        // 内容列宽（竖屏设计）
+    marginX: 22,    // 内容与外框左右边距
     padX: 10,
     padY: 6,
     lineH: 17,
-    rootW: 215
+    nodeGap: 8,     // 同一行内节点间距
+    rowGap: 8,      // 行与行垂直间距
+    innerGap: 8,    // 分支标题与下方子节点行的间距
+    nGap: 16,       // 相邻分支块垂直间距
+    rootGap: 18,    // 根节点与第一个分支的间距
+    topPad: 8,
+    botPad: 10
   };
 
   function esc(s) {
@@ -38,6 +45,14 @@
     return lines;
   }
 
+  function textWidth(text, cw) {
+    var w = 0;
+    for (var i = 0; i < text.length; i++) {
+      w += text.charCodeAt(i) > 255 ? cw : cw * 0.55;
+    }
+    return w;
+  }
+
   function MindMap(container, rootData, opts) {
     opts = opts || {};
     this.container = container;
@@ -55,18 +70,13 @@
       depth: depth,
       children: [],
       collapsed: false,
-      collapsedCount: data.c ? data.c.length : 0,
-      side: (data._side === 'left' || data._side === 'right') ? data._side : 'right'
+      collapsedCount: data.c ? data.c.length : 0
     };
     var cfg = this.cfg;
-    var w;
-    if (depth === 0) w = cfg.rootW;
-    else w = Math.min(cfg.colGap - 10, depth <= 2 ? 158 : 148);
     var cw = depth === 0 ? CW_ROOT : CW_CHILD;
-    n.font = depth === 0 ? FONT_ROOT : FONT_CHILD;
-    n.w = w;
-    n.lines = wrapLines(data.t, w - cfg.padX * 2 - 4, cw);
-    n.h = Math.max(n.lines.length * cfg.lineH + cfg.padY * 2, 27);
+    n.w = Math.min(textWidth(data.t, cw) + cfg.padX * 2 + 6, cfg.cw);
+    n.lines = wrapLines(data.t, n.w - cfg.padX * 2 - 4, cw);
+    n.h = Math.max(n.lines.length * cfg.lineH + cfg.padY * 2 + 2, 27);
     if (data.c) {
       for (var i = 0; i < data.c.length; i++) {
         n.children.push(this.build(data.c[i], depth + 1));
@@ -75,111 +85,89 @@
     return n;
   };
 
-  MindMap.prototype.partition = function (node) {
-    // depth-1 分支左右交替分派：偶数→右，奇数→左
-    var right = [], left = [];
-    var root = node;
-    node.children.forEach(function (c, i) {
-      c.side = (i % 2 === 0) ? 'right' : 'left';
-      if (c.side === 'right') right.push(c);
-      else left.push(c);
-    });
-    (function assign(cs) {
-      cs.forEach(function (c) {
-        c.children.forEach(function (g) { g.side = c.side; assign(g.children); });
-      });
-    })(right);
-    (function assign(cs) {
-      cs.forEach(function (c) {
-        c.children.forEach(function (g) { g.side = c.side; assign(g.children); });
-      });
-    })(left);
-    return { right: right, left: left };
+  MindMap.prototype.hasSub = function (n) {
+    if (!n.children.length || n.collapsed) return false;
+    for (var i = 0; i < n.children.length; i++) {
+      if (!n.children[i].collapsed) return true;
+    }
+    return false;
+  };
+
+  // 将子节点横向打包成若干行（每个有子树的节点独占一行）
+  MindMap.prototype.packRows = function (items) {
+    var cfg = this.cfg;
+    var rows = [], cur = [], curW = -cfg.nodeGap;
+    function flush() { if (cur.length) { rows.push(cur); cur = []; curW = -cfg.nodeGap; } }
+    for (var i = 0; i < items.length; i++) {
+      var it = items[i];
+      if (this.hasSub(it)) { flush(); rows.push([it]); cur = []; curW = -cfg.nodeGap; continue; }
+      var add = it.w + (cur.length ? cfg.nodeGap : 0);
+      if (cur.length && curW + add > cfg.cw) { flush(); add = it.w; }
+      cur.push(it); curW += add;
+    }
+    flush();
+    return rows;
+  };
+
+  // 递归计算以 n 为根（含 n 自身）所需总高度
+  MindMap.prototype.measureSubtree = function (n) {
+    var cfg = this.cfg;
+    if (!this.hasSub(n)) return n.h;
+    var rows = this.packRows(n.children);
+    var total = n.h + cfg.innerGap;
+    for (var i = 0; i < rows.length; i++) {
+      var row = rows[i];
+      var rowH = 0;
+      for (var j = 0; j < row.length; j++) rowH = Math.max(rowH, row[j].h);
+      var extra = rowH;
+      for (var k = 0; k < row.length; k++) {
+        if (this.hasSub(row[k])) extra = Math.max(extra, this.measureSubtree(row[k]));
+      }
+      total += extra + cfg.rowGap;
+    }
+    return total - cfg.rowGap;
+  };
+
+  // 纵向布局：根在上，分支自上而下，子节点横向打包成行
+  MindMap.prototype.lay = function (node, top) {
+    var cfg = this.cfg;
+    node.x = cfg.marginX + (cfg.cw - node.w) / 2;
+    node.y = top + node.h / 2;
+    if (!this.hasSub(node)) return;
+    var rows = this.packRows(node.children);
+    var y = top + node.h + cfg.innerGap;
+    for (var i = 0; i < rows.length; i++) {
+      var row = rows[i];
+      var rowH = 0, sumW = 0;
+      for (var j = 0; j < row.length; j++) {
+        rowH = Math.max(rowH, row[j].h);
+        sumW += row[j].w + (j ? cfg.nodeGap : 0);
+      }
+      var x = cfg.marginX + (cfg.cw - sumW) / 2;
+      var extra = rowH;
+      for (var k = 0; k < row.length; k++) {
+        var item = row[k];
+        item.x = x;
+        var itemTop = y + (rowH - item.h) / 2;
+        item.y = itemTop + item.h / 2;
+        if (this.hasSub(item)) {
+          this.lay(item, itemTop);
+          extra = Math.max(extra, this.measureSubtree(item));
+        }
+        x += item.w + cfg.nodeGap;
+      }
+      y += extra + cfg.rowGap;
+    }
+    this._maxY = y - cfg.rowGap;
   };
 
   MindMap.prototype.layout = function () {
-    var self = this;
     var cfg = this.cfg;
-    var root = this.root;
-
-    // y 布局：叶子堆叠，父节点取首尾子中点
-    function walk(n) {
-      if (!n.children.length || n.collapsed) {
-        n._top = self._cursor;
-        n._bottom = self._cursor + n.h;
-        n.relY = n._top + n.h / 2;
-        self._cursor += n.h + cfg.vGap;
-        return;
-      }
-      for (var i = 0; i < n.children.length; i++) walk(n.children[i]);
-      n._top = n.children[0]._top;
-      n._bottom = n.children[n.children.length - 1]._bottom;
-      n.relY = (n._top + n._bottom) / 2;
-    }
-
-    function layoutSide(branches) {
-      var sideH = 0;
-      self._cursor = 0;
-      if (branches.length) {
-        for (var i = 0; i < branches.length; i++) {
-          self._cursor = i ? branches[i - 1]._bottom + cfg.sideGap : 0;
-          walk(branches[i]);
-        }
-        sideH = branches[branches.length - 1]._bottom;
-      }
-      return sideH;
-    }
-
-    var sides = this.partition(root);
-    var rightH = layoutSide(sides.right);
-    var leftH = layoutSide(sides.left);
-    var canvasH = Math.max(rightH, leftH, root.h) ;
-    canvasH += 40; // 上下留白
-    root.relY = canvasH / 2;
-
-    function shiftSide(branches, sideH) {
-      var off = (canvasH - sideH) / 2;
-      branches.forEach(function (b) {
-        (function sh(n) {
-          n.y = n.relY + off;
-          for (var i = 0; i < n.children.length; i++) sh(n.children[i]);
-        })(b);
-      });
-    }
-    shiftSide(sides.right, rightH);
-    shiftSide(sides.left, leftH);
-
-    // x 布局
-    var rootLeft = 60;
-    root.x = rootLeft;
-    root.y = root.relY;
-    (function assignX(children) {
-      children.forEach(function (c) {
-        if (c.side === 'right') {
-          c.x = rootLeft + root.w + c.depth * cfg.colGap;
-        } else {
-          c.x = rootLeft - c.depth * cfg.colGap - c.w;
-        }
-        assignX(c.children);
-      });
-    })(root.children);
-
-    // 归一化左边距并求画布尺寸
-    var minX = Infinity, maxX = -Infinity;
-    (function scan(n) {
-      if (n.x < minX) minX = n.x;
-      if (n.x + n.w > maxX) maxX = n.x + n.w;
-      for (var i = 0; i < n.children.length; i++) scan(n.children[i]);
-    })(root);
-    var shift = 24 - minX;
-    (function scan2(n) {
-      n.x += shift;
-      for (var i = 0; i < n.children.length; i++) scan2(n.children[i]);
-    })(root);
-
-    this.contentH = canvasH;
-    this.contentW = maxX + shift + 24;
-    this.canvasH = canvasH;
+    this._maxY = 0;
+    this.lay(this.root, cfg.topPad);
+    this.contentW = cfg.cw + cfg.marginX * 2;
+    this.contentH = Math.max(this._maxY, this.root.h) + cfg.botPad;
+    this.canvasH = this.contentH;
   };
 
   MindMap.prototype.render = function () {
@@ -252,18 +240,20 @@
   };
 
   MindMap.prototype.drawLinks = function (node) {
-    if (!node.children.length || node.collapsed) return;
+    if (!this.hasSub(node)) return;
     var self = this;
+    var px = node.x + node.w / 2;
+    var py = node.y + node.h / 2;
     for (var i = 0; i < node.children.length; i++) {
       var child = node.children[i];
-      var rightSide = child.side === 'right';
-      var x1 = rightSide ? node.x + node.w : node.x;
-      var y1 = node.y;
-      var x2 = rightSide ? child.x : child.x + child.w;
-      var y2 = child.y;
-      if (x1 > x2) { var t = x1; x1 = x2; x2 = t; }
-      var mx = (x1 + x2) / 2;
-      var d = 'M' + x1.toFixed(1) + ',' + y1.toFixed(1) + ' C' + mx.toFixed(1) + ',' + y1.toFixed(1) + ' ' + mx.toFixed(1) + ',' + y2.toFixed(1) + ' ' + x2.toFixed(1) + ',' + y2.toFixed(1);
+      if (child.collapsed) continue;
+      var cx = child.x + child.w / 2;
+      var cy = child.y - child.h / 2;
+      var mid = (py + cy) / 2;
+      var d = 'M' + px.toFixed(1) + ',' + py.toFixed(1) +
+              ' C' + px.toFixed(1) + ',' + mid.toFixed(1) +
+              ' ' + cx.toFixed(1) + ',' + mid.toFixed(1) +
+              ' ' + cx.toFixed(1) + ',' + cy.toFixed(1);
       var path = document.createElementNS(SVG_NS, 'path');
       path.setAttribute('d', d);
       path.setAttribute('class', 'mm-link');
