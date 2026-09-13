@@ -1,4 +1,4 @@
-/* 应用：书架 → 书籍 → 章节 三视图 + hash 路由 */
+/* 应用：书架 → 书籍页（简介 / 章节要点 / 音频口播 三区平行展示）+ hash 路由 */
 (function () {
   'use strict';
 
@@ -12,7 +12,10 @@
   };
   var esc = function (s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); };
 
-  var state = { view: 'shelf', bookId: null, chId: null, mm: null, tab: 'mindmap' };
+  var state = {
+    view: 'shelf', bookId: null, chId: null,
+    chapOpen: null, chapTabs: {}
+  };
 
   function getBook(id) {
     for (var i = 0; i < DATA.books.length; i++) if (DATA.books[i].id === id) return DATA.books[i];
@@ -28,7 +31,7 @@
     var parts = location.hash.replace(/^#\/?/, '').split('/').filter(Boolean);
     if (parts[0] === 'book') {
       var b = parts[1], c = parts[2] || null;
-      if (getBook(b)) return { view: c ? 'chapter' : 'book', bookId: b, chId: c };
+      if (getBook(b)) return { view: 'book', bookId: b, chId: c };
     }
     return { view: 'shelf', bookId: null, chId: null };
   }
@@ -38,10 +41,34 @@
 
   function boot() {
     state = hashState();
-    if (state.view === 'book') renderBook();
-    else if (state.view === 'chapter') renderChapter();
-    else renderShelf();
+    state.chapOpen = null;
+    state.chapTabs = {};
+    if (state.view === 'book') {
+      if (state.chId) state.chapOpen = state.chId;
+      renderBook();
+    } else renderShelf();
     window.scrollTo(0, 0);
+  }
+
+  /* ---------------- 封面 ---------------- */
+  function coverEl(book, extraCls) {
+    var cv = el('div', 'book-cover' + (extraCls || ''));
+    if (book.cover && book.cover.img) {
+      cv.classList.add('has-img');
+      var img = new Image();
+      img.className = 'cover-img';
+      img.src = book.cover.img;
+      img.alt = book.title;
+      cv.appendChild(img);
+    } else {
+      cv.style.background = 'linear-gradient(150deg, ' + book.cover.from + ' 0%, ' + book.cover.to + ' 78%)';
+      cv.style.borderColor = book.cover.accent;
+      var inn = el('div', 'book-cover-inner');
+      inn.appendChild(el('div', 'book-cover-title', esc(book.title)));
+      inn.appendChild(el('div', 'book-cover-author', esc(book.author)));
+      cv.appendChild(inn);
+    }
+    return cv;
   }
 
   /* ---------------- 书架 ---------------- */
@@ -52,7 +79,7 @@
 
     var header = el('header', 'site-head');
     header.appendChild(el('h1', 'site-title', '&#128218; ' + esc(DATA.libraryName)));
-    header.appendChild(el('p', 'site-sub', '点击书籍查看读书笔记：全书概括 → 每章思维导图与要点提炼'));
+    header.appendChild(el('p', 'site-sub', '点击书籍查看读书笔记：书籍简介 → 章节要点（导图+提炼）→ 音频口播'));
     app.appendChild(header);
 
     var grid = el('div', 'shelf-grid');
@@ -60,37 +87,29 @@
       var card = el('a', 'book-card', '');
       card.href = '#/book/' + book.id;
 
-      var cover = el('div', 'book-cover');
-      cover.style.background = 'linear-gradient(150deg, ' + book.cover.from + ' 0%, ' + book.cover.to + ' 78%)';
-      cover.style.borderColor = book.cover.accent;
-      var cv = el('div', 'book-cover-inner');
-      cv.appendChild(el('div', 'book-cover-title', esc(book.title)));
-      cv.appendChild(el('div', 'book-cover-author', esc(book.author)));
-      cover.appendChild(cv);
+      card.appendChild(coverEl(book, ''));
 
       var meta = el('div', 'book-meta');
       meta.appendChild(el('div', 'book-tagline', esc(book.tagline)));
       meta.appendChild(el('div', 'book-info', esc(book.role) + ' · ' + book.chapters.length + ' 章'));
+      card.appendChild(meta);
 
       var foot = el('div', 'book-footer');
       var kws = el('div', 'book-kws');
       book.keywords.slice(0, 4).forEach(function (k) { kws.appendChild(el('span', 'chip', esc(k))); });
       foot.appendChild(kws);
       foot.appendChild(el('span', 'book-arrow', '&#8594;'));
-
-      card.appendChild(cover);
-      card.appendChild(meta);
       card.appendChild(foot);
       grid.appendChild(card);
     });
     app.appendChild(grid);
 
     var tip = el('div', 'shelf-tip');
-    tip.innerHTML = '提示：思维导图节点可点击折叠/展开，工具栏支持缩放。新增书籍与章节请编辑 <code>assets/js/data.js</code>（见 README）。';
+    tip.innerHTML = '提示：导图节点可点击折叠/展开，工具栏支持缩放。新增书籍与章节请编辑 <code>assets/js/data.js</code>（见 README）。';
     app.appendChild(tip);
   }
 
-  /* ---------------- 书籍详情 ---------------- */
+  /* ================ 书籍页：三区平行展示 ================ */
   function renderBook() {
     var book = getBook(state.bookId);
     if (!book) return renderShelf();
@@ -103,14 +122,7 @@
     app.appendChild(back);
 
     var head = el('div', 'book-head');
-    var cover = el('div', 'book-cover book-cover-lg');
-    cover.style.background = 'linear-gradient(150deg, ' + book.cover.from + ' 0%, ' + book.cover.to + ' 78%)';
-    cover.style.borderColor = book.cover.accent;
-    var cv = el('div', 'book-cover-inner');
-    cv.appendChild(el('div', 'book-cover-title', esc(book.title)));
-    cv.appendChild(el('div', 'book-cover-author', esc(book.author)));
-    cover.appendChild(cv);
-
+    head.appendChild(coverEl(book, ' book-cover-lg'));
     var info = el('div', 'book-info-box');
     info.appendChild(el('h2', 'book-title-lg', esc(book.title)));
     info.appendChild(el('div', 'book-sub', esc(book.fullTitle)));
@@ -119,153 +131,142 @@
     var kws = el('div', 'book-kws lg');
     book.keywords.forEach(function (k) { kws.appendChild(el('span', 'chip', esc(k))); });
     info.appendChild(kws);
-    head.appendChild(cover);
     head.appendChild(info);
     app.appendChild(head);
 
-    var summary = el('section', 'panel');
-    summary.appendChild(el('h3', 'panel-title', '全书概括'));
-    var p = el('div', 'summary-text');
-    book.summary.forEach(function (s) { p.appendChild(el('p', '', esc(s))); });
-    summary.appendChild(p);
-    app.appendChild(summary);
-
-    var chap = el('section', 'panel');
-    chap.appendChild(el('h3', 'panel-title', '章节目录（' + book.chapters.length + ' 章）'));
-    var list = el('div', 'chapter-list');
-    book.chapters.forEach(function (ch) {
-      var row = el('a', 'chapter-row', '');
-      row.href = '#/book/' + book.id + '/' + ch.id;
-      var no = el('span', 'chapter-no', ch.no < 10 ? '0' + ch.no : ch.no);
-      var body = el('div', 'chapter-body');
-      body.appendChild(el('div', 'chapter-title', esc(ch.title)));
-      body.appendChild(el('div', 'chapter-tagline', esc(ch.tagline)));
-      var right = el('span', 'chapter-arrow', '导图 + 提炼 &#8599;');
-      row.appendChild(no);
-      row.appendChild(body);
-      row.appendChild(right);
-      list.appendChild(row);
-    });
-    chap.appendChild(list);
-    app.appendChild(chap);
-
-    var map = el('section', 'panel');
-    map.appendChild(el('h3', 'panel-title', '全书思维导图'));
-    var tools = el('div', 'mm-tools');
-    tools.appendChild(mmButton('缩小', function () { if (state.mm) state.mm.zoom(1 / 1.2); }));
-    tools.appendChild(mmButton('放大', function () { if (state.mm) state.mm.zoom(1.2); }));
-    tools.appendChild(mmButton('适应屏幕', function () { if (state.mm) state.mm.fit(); }));
-    map.appendChild(tools);
-    var mmc = el('div', 'mindmap');
-    map.appendChild(mmc);
-    app.appendChild(map);
-
-    state.mm = new window.MindMap(mmc, {
-      t: '《' + book.title + '》导读',
-      c: book.chapters.map(function (ch, i) {
-        var sub = ch.mindmap.c.map(function (g) { return { t: g.t }; });
-        return { t: '第' + ch.no + '章 ' + ch.title, c: sub };
-      })
-    });
-    state.tab = null;
-  }
-
-  function mmButton(label, fn) {
-    var b = el('button', 'mm-tool', label);
-    b.addEventListener('click', fn);
-    return b;
-  }
-
-  /* ---------------- 章节详情 ---------------- */
-  function renderChapter() {
-    var book = getBook(state.bookId);
-    var ch = book && getChapter(book, state.chId);
-    if (!book || !ch) return renderBook();
-    document.title = ch.title + ' · ' + book.title;
-    var app = $('#app');
-    app.innerHTML = '';
-
-    var back = el('a', 'nav-back', '&#8592; ' + esc(book.title));
-    back.href = '#/book/' + book.id;
-    app.appendChild(back);
-
-    var head = el('div', 'ch-head');
-    var no = el('span', 'ch-no', '第' + ch.no + '章');
-    head.appendChild(no);
-    head.appendChild(el('h2', 'ch-title', esc(ch.title)));
-    head.appendChild(el('p', 'ch-tagline', esc(ch.tagline)));
-    var kws = el('div', 'book-kws lg');
-    ch.keywords.forEach(function (k) { kws.appendChild(el('span', 'chip', esc(k))); });
-    head.appendChild(kws);
-    app.appendChild(head);
-
-    var tabs = el('div', 'tabs');
-    var tabsDef = [
-      { key: 'mindmap', label: '思维导图' },
-      { key: 'notes', label: '文字提炼' },
-      { key: 'audio', label: '音频口播' }
+    /* 顶部锚点导航：三区快速跳转 */
+    var nav = [
+      { id: 'sec-intro', label: '一、书籍简介' },
+      { id: 'sec-chapters', label: '二、章节要点（' + book.chapters.length + ' 章）' },
+      { id: 'sec-audio', label: '三、音频口播合集' }
     ];
-    state.tab = 'mindmap';
-    tabsDef.forEach(function (t) {
-      var btn = el('button', 'tab' + (t.key === state.tab ? ' active' : ''), t.label);
-      btn.setAttribute('data-key', t.key);
-      btn.addEventListener('click', function () {
-        setTab(book, ch, t.key);
+    var tabs = el('div', 'tabs book-tabs');
+    nav.forEach(function (n) {
+      var b = el('button', 'tab jump', n.label);
+      b.addEventListener('click', function () {
+        var sec = document.getElementById(n.id);
+        if (sec) sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
       });
-      tabs.appendChild(btn);
+      tabs.appendChild(b);
     });
     app.appendChild(tabs);
 
-    app.setAttribute('data-ch', ch.id);
-    var content = el('div', 'tab-content');
-    app.appendChild(content);
-    renderTab(book, ch, 'mindmap', content);
+    /* 区一：书籍简介 + 全书思维导图 */
+    var secIntro = el('section', 'panel book-section');
+    secIntro.id = 'sec-intro';
+    var introInner = el('div', '');
+    introInner.appendChild(el('h3', 'panel-title', '书籍简介'));
+    var sum = el('div', 'summary-text');
+    book.summary.forEach(function (s) { sum.appendChild(el('p', '', esc(s))); });
+    introInner.appendChild(sum);
+    app.appendChild(secIntro);
+    var bookMap = el('div', 'book-map');
+    bookMap.appendChild(el('h3', 'panel-title sub', '全书思维导图'));
+    var tools1 = el('div', 'mm-tools');
+    var mb1 = {};
+    tools1.appendChild(mmButton('缩小', function () { if (mb1.m) mb1.m.zoom(1 / 1.2); }));
+    tools1.appendChild(mmButton('放大', function () { if (mb1.m) mb1.m.zoom(1.2); }));
+    tools1.appendChild(mmButton('适应屏幕', function () { if (mb1.m) mb1.m.fit(); }));
+    bookMap.appendChild(tools1);
+    var mmc1 = el('div', 'mindmap');
+    bookMap.appendChild(mmc1);
+    secIntro.appendChild(introInner);
+    secIntro.appendChild(introInner);
+    secIntro.appendChild(bookMap);
+    mb1.m = new window.MindMap(mmc1, {
+      t: '《' + book.title + '》导读',
+      c: book.chapters.map(function (ch) {
+        return { t: '第' + ch.no + '章 ' + ch.title, c: ch.mindmap.c.map(function (g) { return { t: g.t }; }) };
+      })
+    });
 
-    var nav = el('div', 'ch-nav');
-    var idx = book.chapters.indexOf(ch);
-    if (idx > 0) {
-      var prev = el('a', 'ch-nav-link', '上一章：' + esc(book.chapters[idx - 1].title));
-      prev.href = '#/book/' + book.id + '/' + book.chapters[idx - 1].id;
-      nav.appendChild(prev);
-    }
-    if (idx < book.chapters.length - 1) {
-      var next = el('a', 'ch-nav-link next', '下一章：' + esc(book.chapters[idx + 1].title));
-      next.href = '#/book/' + book.id + '/' + book.chapters[idx + 1].id;
-      nav.appendChild(next);
-    }
-    app.appendChild(nav);
+    /* 区二：章节要点（每章可展开：思维导图 + 文字提炼） */
+    var secChapters = el('section', 'panel book-section');
+    secChapters.id = 'sec-chapters';
+    secChapters.appendChild(el('h3', 'panel-title', '章节要点'));
+    app.appendChild(secChapters);
+    renderChapters(book, secChapters);
+
+    /* 区三：音频口播合集 */
+    var secAudio = el('section', 'panel book-section');
+    secAudio.id = 'sec-audio';
+    secAudio.appendChild(el('h3', 'panel-title', '音频口播合集'));
+    app.appendChild(secAudio);
+    renderAudioAll(book, secAudio);
   }
 
-  function setTab(book, ch, key) {
-    state.tab = key;
-    var tabs = document.querySelectorAll('.tab');
-    for (var i = 0; i < tabs.length; i++) {
-      tabs[i].classList.toggle('active', tabs[i].getAttribute('data-key') === key);
-    }
-    var content = $('.tab-content');
-    renderTab(book, ch, key, content);
+  /* ---- 区二：章节列表，每章展开含思维导图 + 文字提炼 ---- */
+  function renderChapters(book, content) {
+    var list = el('div', 'chapter-list');
+    book.chapters.forEach(function (ch) {
+      var open = ch.id === state.chapOpen;
+      var item = el('div', 'chap-item' + (open ? ' open' : ''));
+
+      var head = el('div', 'chap-head');
+      head.appendChild(el('span', 'chapter-no', ch.no < 10 ? '0' + ch.no : ch.no));
+      var body = el('div', 'chapter-body');
+      body.appendChild(el('div', 'chapter-title', esc(ch.title)));
+      body.appendChild(el('div', 'chapter-tagline', esc(ch.tagline)));
+      head.appendChild(body);
+      head.appendChild(el('span', 'chapter-arrow', open ? '收起 ▲' : '展开 ▼'));
+      head.addEventListener('click', function () {
+        state.chapOpen = (ch.id === state.chapOpen) ? null : ch.id;
+        renderChapters(book, content);
+      });
+      item.appendChild(head);
+
+      if (open) {
+        var cbody = el('div', 'chap-body');
+        var kws = el('div', 'book-kws lg');
+        ch.keywords.forEach(function (k) { kws.appendChild(el('span', 'chip', esc(k))); });
+        cbody.appendChild(kws);
+
+        var subTabs = el('div', 'tabs chap-tabs');
+        var subBox = el('div', 'chap-content');
+        var activeTab = state.chapTabs[ch.id] || 'mindmap';
+        [['mindmap', '思维导图'], ['notes', '文字提炼']].forEach(function (td) {
+          var b = el('button', 'tab' + (activeTab === td[0] ? ' active' : ''), td[1]);
+          b.setAttribute('data-key', td[0]);
+          b.addEventListener('click', function () {
+            state.chapTabs[ch.id] = td[0];
+            var btns = subTabs.querySelectorAll('.tab');
+            for (var i = 0; i < btns.length; i++) {
+              btns[i].classList.toggle('active', btns[i].getAttribute('data-key') === td[0]);
+            }
+            renderChapBody(ch, subBox);
+          });
+          subTabs.appendChild(b);
+        });
+        cbody.appendChild(subTabs);
+        cbody.appendChild(subBox);
+        item.appendChild(cbody);
+        renderChapBody(ch, subBox);
+      }
+
+      list.appendChild(item);
+    });
+    content.appendChild(list);
   }
 
-  function renderTab(book, ch, key, content) {
+  function renderChapBody(ch, content) {
     content.innerHTML = '';
-    if (key === 'mindmap') renderMindmapTab(ch, content);
-    else if (key === 'notes') renderNotesTab(ch, content);
-    else renderAudioTab(ch, content);
+    if ((state.chapTabs[ch.id] || 'mindmap') === 'mindmap') {
+      var tools = el('div', 'mm-tools');
+      var mb = {};
+      tools.appendChild(mmButton('缩小', function () { if (mb.m) mb.m.zoom(1 / 1.2); }));
+      tools.appendChild(mmButton('放大', function () { if (mb.m) mb.m.zoom(1.2); }));
+      tools.appendChild(mmButton('适应屏幕', function () { if (mb.m) mb.m.fit(); }));
+      tools.appendChild(el('span', 'mm-hint', '点击节点可折叠 / 展开'));
+      content.appendChild(tools);
+      var mmc = el('div', 'mindmap');
+      content.appendChild(mmc);
+      mb.m = new window.MindMap(mmc, ch.mindmap);
+    } else {
+      renderNotes(ch, content);
+    }
   }
 
-  function renderMindmapTab(ch, content) {
-    var tools = el('div', 'mm-tools');
-    tools.appendChild(mmButton('缩小', function () { if (state.mm) state.mm.zoom(1 / 1.2); }));
-    tools.appendChild(mmButton('放大', function () { if (state.mm) state.mm.zoom(1.2); }));
-    tools.appendChild(mmButton('适应屏幕', function () { if (state.mm) state.mm.fit(); }));
-    tools.appendChild(el('span', 'mm-hint', '点击节点可折叠 / 展开'));
-    content.appendChild(tools);
-    var mmc = el('div', 'mindmap tab-mindmap');
-    content.appendChild(mmc);
-    state.mm = new window.MindMap(mmc, ch.mindmap);
-  }
-
-  function renderNotesTab(ch, content) {
+  function renderNotes(ch, content) {
     ch.notes.forEach(function (block) {
       var sec = el('div', 'note-block');
       sec.appendChild(el('h4', 'note-h', esc(block.h)));
@@ -279,26 +280,32 @@
     });
   }
 
-  function renderAudioTab(ch, content) {
-    var box = el('div', 'audio-panel');
-    if (ch.audio && ch.audio.src) {
-      box.appendChild(el('h4', 'audio-title', esc(ch.audio.title || ch.title + ' · 口播音频')));
-      var player = el('audio', 'audio-player');
-      player.controls = true;
-      player.preload = 'none';
-      player.src = ch.audio.src;
-      box.appendChild(player);
-      if (ch.audio.transcript) {
-        box.appendChild(el('p', 'audio-transcript', esc(ch.audio.transcript)));
+  /* ---- 区三：音频口播合集 ---- */
+  function renderAudioAll(book, content) {
+    book.chapters.forEach(function (ch) {
+      var item = el('div', 'audio-item');
+      item.appendChild(el('h4', 'audio-title', '第' + ch.no + '章 · ' + esc(ch.title)));
+      if (ch.audio && ch.audio.src) {
+        var pl = document.createElement('audio');
+        pl.className = 'audio-player';
+        pl.controls = true;
+        pl.preload = 'none';
+        pl.src = ch.audio.src;
+        item.appendChild(pl);
+        if (ch.audio.transcript) {
+          item.appendChild(el('p', 'audio-transcript', esc(ch.audio.transcript)));
+        }
+      } else {
+        item.appendChild(el('div', 'audio-mini', '本章音频口播制作中'));
       }
-    } else {
-      var ph = el('div', 'audio-placeholder');
-      ph.appendChild(el('div', 'audio-ico', ''));
-      ph.appendChild(el('h4', 'audio-title', '本章音频口播制作中'));
-      ph.appendChild(el('p', 'audio-desc', '准备好录音后将音频文件放入 assets/audio/ 目录，并在 data.js 本章的 audio 字段填入路径即可播放。'));
-      box.appendChild(ph);
-    }
-    content.appendChild(box);
+      content.appendChild(item);
+    });
+  }
+
+  function mmButton(label, fn) {
+    var b = el('button', 'mm-tool', label);
+    b.addEventListener('click', fn);
+    return b;
   }
 
   boot();
