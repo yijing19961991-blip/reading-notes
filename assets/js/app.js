@@ -17,6 +17,21 @@
     bookTab: 'intro', chapTab: 'mindmap'
   };
 
+  var activeTune = null; // 当前章节页正在播放的音频 {audio, icon}
+
+  function stopActiveTune() {
+    if (activeTune) {
+      if (activeTune.audio && !activeTune.audio.paused) activeTune.audio.pause();
+      activeTune = null;
+    }
+  }
+
+  function fmtTime(sec) {
+    if (!isFinite(sec) || sec < 0) sec = 0;
+    var m = Math.floor(sec / 60), s = Math.floor(sec % 60);
+    return m + ':' + (s < 10 ? '0' + s : s);
+  }
+
   function getBook(id) {
     for (var i = 0; i < DATA.books.length; i++) if (DATA.books[i].id === id) return DATA.books[i];
     return null;
@@ -40,6 +55,7 @@
   document.addEventListener('DOMContentLoaded', boot);
 
   function boot() {
+    stopActiveTune();
     var hs = hashState();
     if (hs.view === 'book') {
       if (hs.bookId !== state.bookId) { state.bookTab = 'intro'; }
@@ -257,6 +273,8 @@
     head.appendChild(info);
     app.appendChild(head);
 
+    if (ch.audio && ch.audio.src) app.appendChild(buildChapterPlayer(ch));
+
     var tabs = el('div', 'tabs book-tabs');
     var defs = [['mindmap', '思维导图'], ['notes', '文字提炼']];
     var contentBox = el('div', 'book-tab-content');
@@ -292,6 +310,55 @@
       content.appendChild(mmc);
       mb.m = new window.MindMap(mmc, ch.mindmap);
     }
+  }
+
+  /* ---- 章节页内联音频播放器：播放/暂停 + 可拖进度条，切页签不断播 ---- */
+  function buildChapterPlayer(ch) {
+    var wrap = el('div', 'chap-audio');
+    var btn = el('button', 'audio-btn', '&#9654;');
+    btn.setAttribute('aria-label', '播放/暂停本章音频口播');
+    var label = el('span', 'audio-label', '本章音频口播');
+    var seek = document.createElement('input');
+    seek.type = 'range';
+    seek.className = 'audio-seek';
+    seek.min = 0;
+    seek.max = 0;
+    seek.step = 'any';
+    seek.value = 0;
+    var cur = el('span', 'audio-time', '0:00');
+    var dur = el('span', 'audio-time', '0:00');
+    var audio = document.createElement('audio');
+    audio.preload = 'metadata';
+    audio.src = ch.audio.src;
+    audio.addEventListener('loadedmetadata', function () {
+      seek.max = Math.max(audio.duration || 0, 0);
+      dur.textContent = fmtTime(audio.duration);
+    });
+    audio.addEventListener('timeupdate', function () {
+      seek.value = audio.currentTime;
+      cur.textContent = fmtTime(audio.currentTime);
+    });
+    audio.addEventListener('play', function () { btn.innerHTML = '&#10074;&#10074;'; });
+    audio.addEventListener('pause', function () { btn.innerHTML = '&#9654;'; });
+    audio.addEventListener('ended', function () { btn.innerHTML = '&#9654;'; cur.textContent = '0:00'; seek.value = 0; activeTune = null; });
+    btn.addEventListener('click', function () {
+      if (audio.paused) { var p = audio.play(); if (p && p.catch) p.catch(function () {}); }
+      else audio.pause();
+    });
+    seek.addEventListener('input', function () {
+      var t = parseFloat(seek.value);
+      if (isFinite(t)) {
+        audio.currentTime = t;
+        cur.textContent = fmtTime(t);
+      }
+    });
+    wrap.appendChild(btn);
+    wrap.appendChild(label);
+    wrap.appendChild(seek);
+    wrap.appendChild(cur);
+    wrap.appendChild(dur);
+    activeTune = { audio: audio, icon: btn };
+    return wrap;
   }
 
   function renderNotes(ch, content) {
