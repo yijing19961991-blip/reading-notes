@@ -327,6 +327,7 @@
     seek.value = 0;
     var cur = el('span', 'audio-time', '0:00');
     var dur = el('span', 'audio-time', '0:00');
+    var seeking = false;
     var audio = document.createElement('audio');
     audio.preload = 'metadata';
     audio.src = ch.audio.src;
@@ -335,6 +336,7 @@
       dur.textContent = fmtTime(audio.duration);
     });
     audio.addEventListener('timeupdate', function () {
+      if (seeking) return;
       seek.value = audio.currentTime;
       cur.textContent = fmtTime(audio.currentTime);
     });
@@ -345,7 +347,22 @@
       if (audio.paused) { var p = audio.play(); if (p && p.catch) p.catch(function () {}); }
       else audio.pause();
     });
+    seek.addEventListener('pointerdown', function () { seeking = true; });
+    seek.addEventListener('pointerup', function () { seeking = false; });
+    seek.addEventListener('pointercancel', function () { seeking = false; });
+    seek.addEventListener('touchcancel', function () { seeking = false; });
+    document.addEventListener('pointerup', function () { seeking = false; });
+    document.addEventListener('touchend', function () { seeking = false; });
     seek.addEventListener('input', function () {
+      seeking = true;
+      var t = parseFloat(seek.value);
+      if (isFinite(t)) {
+        audio.currentTime = t;
+        cur.textContent = fmtTime(t);
+      }
+    });
+    seek.addEventListener('change', function () {
+      seeking = false;
       var t = parseFloat(seek.value);
       if (isFinite(t)) {
         audio.currentTime = t;
